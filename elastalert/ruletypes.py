@@ -1088,6 +1088,8 @@ class MetricAggregationRule(BaseAggregationRule):
         return message
 
     def generate_aggregation_query(self):
+        if self.rules.get('metric_agg_script'):
+            return {self.metric_key: {self.rules['metric_agg_type']: self.rules['metric_agg_script']}}
         query = {self.metric_key: {self.rules['metric_agg_type']: {'field': self.rules['metric_agg_key']}}}
         if self.rules['metric_agg_type'] in self.allowed_percent_aggregations:
             query[self.metric_key][self.rules['metric_agg_type']]['percents'] = [self.rules['percentile_range']]
@@ -1104,10 +1106,13 @@ class MetricAggregationRule(BaseAggregationRule):
                 metric_val = aggregation_data[self.metric_key]['value']
             if self.crossed_thresholds(metric_val):
                 match = {self.rules['timestamp_field']: timestamp,
-                         self.metric_key: metric_val}
+                         self.metric_key: metric_val,
+                         'metric_agg_value': metric_val
+                         }
                 metric_format_string = self.rules.get('metric_format_string', None)
                 if metric_format_string is not None:
                     match[self.metric_key +'_formatted'] = format_string(metric_format_string, metric_val)
+                    match['metric_agg_value_formatted'] = format_string(metric_format_string, metric_val)
                 if query_key is not None:
                     match = expand_string_into_dict(match, self.rules['query_key'], query_key)
                 self.add_match(match)
@@ -1175,7 +1180,7 @@ class SpikeMetricAggregationRule(BaseAggregationRule, SpikeRule):
         self.rules['aggregation_query_element'] = self.generate_aggregation_query()
 
     def generate_aggregation_query(self):
-        """Lifted from MetricAggregationRule, added support for scripted fields"""
+        """Lifted from MetricAggregationRule"""
         if self.rules.get('metric_agg_script'):
             return {self.metric_key: {self.rules['metric_agg_type']: self.rules['metric_agg_script']}}
         query = {self.metric_key: {self.rules['metric_agg_type']: {'field': self.rules['metric_agg_key']}}}

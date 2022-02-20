@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from base64 import b64encode
 import copy
 import datetime
 import os
@@ -14,7 +15,11 @@ from elastalert.loaders import FileRulesLoader
 from elastalert.loaders import RulesLoader
 from elastalert.util import EAException
 
-test_config = {'rules_folder': 'test_folder',
+
+loaders_test_cases_path = os.path.join(os.path.dirname(__file__), 'loaders_test_cases')
+empty_folder_test_path = os.path.join(loaders_test_cases_path, 'empty')
+
+test_config = {'rules_folder': empty_folder_test_path,
                'run_every': {'minutes': 10},
                'buffer_time': {'minutes': 10},
                'es_host': 'elasticsearch.test',
@@ -167,8 +172,34 @@ def test_load_inline_alert_rule():
         assert 'baz@foo.bar' in test_rule_copy['alert'][1].rule['email']
 
 
+def test_load_inline_alert_rule_with_jinja():
+    rules_loader = FileRulesLoader(test_config)
+    test_rule_copy = copy.deepcopy(test_rule)
+    test_rule_copy['alert'] = [
+        {
+            'email': {
+                'alert_text_type': 'alert_text_jinja',
+                'alert_text': '{{ myjinjavar }}'
+            }
+        },
+        {
+            'email': {
+                'alert_text': 'hello'
+            }
+        }
+    ]
+    test_config_copy = copy.deepcopy(test_config)
+    with mock.patch.object(rules_loader, 'get_yaml') as mock_open:
+        mock_open.side_effect = [test_config_copy, test_rule_copy]
+        rules_loader.load_modules(test_rule_copy)
+        assert isinstance(test_rule_copy['alert'][0], EmailAlerter)
+        assert isinstance(test_rule_copy['alert'][1], EmailAlerter)
+        assert 'jinja_template' in test_rule_copy['alert'][0].rule
+        assert 'jinja_template' not in test_rule_copy['alert'][1].rule
+
+
 def test_file_rules_loader_get_names_recursive():
-    conf = {'scan_subdirectories': True, 'rules_folder': 'root'}
+    conf = {'scan_subdirectories': True, 'rules_folder': empty_folder_test_path}
     rules_loader = FileRulesLoader(conf)
     walk_paths = (('root', ['folder_a', 'folder_b'], ('rule.yaml',)),
                   ('root/folder_a', [], ('a.yaml', 'ab.yaml')),
@@ -184,6 +215,16 @@ def test_file_rules_loader_get_names_recursive():
     assert 'root/folder_a/ab.yaml' in paths
     assert 'root/folder_b/b.yaml' in paths
     assert len(paths) == 4
+
+
+def test_file_rules_loader_get_names_invalid_path():
+    conf = {'scan_subdirectories': True, 'rules_folder': './folder_missing#XYZ'}
+    try:
+        # folder missing so FileRulesLoader must throws an error
+        if FileRulesLoader(conf).get_names(conf):
+            assert False
+    except EAException:
+        pass
 
 
 def test_file_rules_loader_get_names():
@@ -478,3 +519,137 @@ def test_get_import_rule():
     }
     result = RulesLoader.get_import_rule('', rule)
     assert 'a' == result
+
+
+def test_get_rule_file_hash_when_file_not_found():
+    test_config_copy = copy.deepcopy(test_config)
+    rules_loader = FileRulesLoader(test_config_copy)
+    hash = rules_loader.get_rule_file_hash('empty_folder_test/file_not_found.yml')
+    assert isinstance(hash, bytes)
+    b64Hash = b64encode(hash).decode('ascii')
+    assert 'zR1Ml8y8S8Z/I5j7b48OH+DJqUw=' == b64Hash
+
+
+def test_load_yaml_recursive_import():
+    config = {}
+    rules_loader = FileRulesLoader(config)
+
+    trunk_path = os.path.join(loaders_test_cases_path, 'recursive_import/trunk.yaml')
+    branch_path = os.path.join(loaders_test_cases_path, 'recursive_import/branch.yaml')
+    leaf_path = os.path.join(loaders_test_cases_path, 'recursive_import/leaf.yaml')
+
+    # re-load the rule a couple times to ensure import_rules cache is updated correctly
+    for i in range(3):
+
+        leaf_yaml = rules_loader.load_yaml(leaf_path)
+        assert leaf_yaml == {
+            'name': 'leaf',
+            'rule_file': leaf_path,
+            'diameter': '5cm',
+        }
+        assert sorted(rules_loader.import_rules.keys()) == [
+            branch_path,
+            leaf_path,
+        ]
+        assert rules_loader.import_rules[branch_path] == [
+            trunk_path,
+        ]
+        assert rules_loader.import_rules[leaf_path] == [
+            branch_path,
+        ]
+
+
+def test_load_yaml_multiple_imports():
+    config = {}
+    rules_loader = FileRulesLoader(config)
+
+    hydrogen_path = os.path.join(loaders_test_cases_path, 'multiple_imports/hydrogen.yaml')
+    oxygen_path = os.path.join(loaders_test_cases_path, 'multiple_imports/oxygen.yaml')
+    water_path = os.path.join(loaders_test_cases_path, 'multiple_imports/water.yaml')
+
+    # re-load the rule a couple times to ensure import_rules cache is updated correctly
+    for i in range(3):
+
+        water_yaml = rules_loader.load_yaml(water_path)
+        assert water_yaml == {
+            'name': 'water',
+            'rule_file': water_path,
+            'symbol': 'O',
+        }
+        assert sorted(rules_loader.import_rules.keys()) == [
+            water_path,
+        ]
+        assert rules_loader.import_rules[water_path] == [
+            hydrogen_path,
+            oxygen_path,
+        ]
+
+
+def test_load_yaml_imports_modified():
+    config = {}
+    rules_loader = FileRulesLoader(config)
+
+    rule_path = os.path.join(empty_folder_test_path, 'rule.yaml')
+    first_import_path = os.path.join(empty_folder_test_path, 'first.yaml')
+    second_import_path = os.path.join(empty_folder_test_path, 'second.yaml')
+
+    with mock.patch.object(rules_loader, 'get_yaml') as get_yaml:
+        get_yaml.side_effect = [
+            {
+                'name': 'rule',
+                'import': first_import_path,
+            },
+            {
+                'imported': 'first',
+            }
+        ]
+        rule_yaml = rules_loader.load_yaml(rule_path)
+        assert rule_yaml == {
+            'name': 'rule',
+            'rule_file': rule_path,
+            'imported': 'first',
+        }
+        assert sorted(rules_loader.import_rules.keys()) == [
+            rule_path,
+        ]
+        assert rules_loader.import_rules[rule_path] == [
+            first_import_path
+        ]
+
+    # simulate the import changing
+    with mock.patch.object(rules_loader, 'get_yaml') as get_yaml:
+        get_yaml.side_effect = [
+            {
+                'name': 'rule',
+                'import': second_import_path,
+            },
+            {
+                'imported': 'second',
+            }
+        ]
+        rule_yaml = rules_loader.load_yaml(rule_path)
+        assert rule_yaml == {
+            'name': 'rule',
+            'rule_file': rule_path,
+            'imported': 'second',
+        }
+        assert sorted(rules_loader.import_rules.keys()) == [
+            rule_path,
+        ]
+        assert rules_loader.import_rules[rule_path] == [
+            second_import_path
+        ]
+
+    # simulate the import being removed
+    with mock.patch.object(rules_loader, 'get_yaml') as get_yaml:
+        get_yaml.side_effect = [
+            {
+                'name': 'rule',
+            },
+        ]
+        rule_yaml = rules_loader.load_yaml(rule_path)
+        assert rule_yaml == {
+            'name': 'rule',
+            'rule_file': rule_path,
+        }
+        assert len(rules_loader.import_rules) == 0

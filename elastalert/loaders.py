@@ -23,6 +23,7 @@ import elastalert.alerters.exotel
 import elastalert.alerters.gitter
 import elastalert.alerters.googlechat
 import elastalert.alerters.httppost
+import elastalert.alerters.httppost2
 import elastalert.alerters.line
 import elastalert.alerters.pagertree
 import elastalert.alerters.rocketchat
@@ -36,6 +37,7 @@ import elastalert.alerters.victorops
 from elastalert import alerts
 from elastalert import enhancements
 from elastalert import ruletypes
+from elastalert.alerters.alertmanager import AlertmanagerAlerter
 from elastalert.alerters.email import EmailAlerter
 from elastalert.alerters.jira import JiraAlerter
 from elastalert.alerters.mattermost import MattermostAlerter
@@ -60,9 +62,15 @@ from elastalert.util import unixms_to_dt
 from elastalert.yaml import read_yaml
 
 
+# load rules schema
+def load_rule_schema():
+    schema_path = os.path.join(os.path.dirname(__file__), 'schema.yaml')
+    with open(schema_path) as schema_file:
+        schema_yml = yaml.load(schema_file, Loader=yaml.FullLoader)
+    return jsonschema.Draft7Validator(schema_yml)
+
+
 class RulesLoader(object):
-    # import rule dependency
-    import_rules = {}
 
     # Required global (config.yaml) configuration options for the loader
     required_globals = frozenset([])
@@ -88,6 +96,7 @@ class RulesLoader(object):
 
     # Used to map names of alerts to their classes
     alerts_mapping = {
+        'alertmanager': AlertmanagerAlerter,
         'tencent_sms': TencentSMSAlerter,
         'email': EmailAlerter,
         'jira': JiraAlerter,
@@ -109,6 +118,7 @@ class RulesLoader(object):
         'servicenow': elastalert.alerters.servicenow.ServiceNowAlerter,
         'alerta': elastalert.alerters.alerta.AlertaAlerter,
         'post': elastalert.alerters.httppost.HTTPPostAlerter,
+        'post2': elastalert.alerters.httppost2.HTTPPost2Alerter,
         'pagertree': elastalert.alerters.pagertree.PagerTreeAlerter,
         'linenotify': elastalert.alerters.line.LineNotifyAlerter,
         'hivealerter': elastalert.alerters.thehive.HiveAlerter,
@@ -133,11 +143,9 @@ class RulesLoader(object):
     jinja_environment = Environment(loader=FileSystemLoader(""))
 
     def __init__(self, conf):
-        # schema for rule yaml
-        self.rule_schema = jsonschema.Draft7Validator(
-            yaml.load(open(os.path.join(os.path.dirname(__file__), 'schema.yaml')), Loader=yaml.FullLoader))
-
+        self.rule_schema = load_rule_schema()
         self.base_config = copy.deepcopy(conf)
+        self.import_rules = {} # import rule dependency
 
     def load(self, conf, args=None):
         """
@@ -204,7 +212,7 @@ class RulesLoader(object):
         Retrieve the name of the rule to import.
         :param dict rule: Rule dict
         :return: rule name that will all `get_yaml` to retrieve the yaml of the rule
-        :rtype: str
+        :rtype: str or List[str]
         """
         return rule['import']
 
@@ -232,10 +240,15 @@ class RulesLoader(object):
             'rule_file': filename,
         }
 
-        self.import_rules.pop(filename, None)  # clear `filename` dependency
-        files_to_import = []
+        current_path = filename
+
+        # Imports are applied using a Depth First Search (DFS) traversal.
+        # If a rule defines multiple imports, both of which define the same value,
+        # the value from the later import will take precedent.
+        import_paths_stack = []
+
         while True:
-            loaded = self.get_yaml(filename)
+            loaded = self.get_yaml(current_path)
 
             # Special case for merging filters - if both files specify a filter merge (AND) them
             if 'filter' in rule and 'filter' in loaded:
@@ -243,17 +256,30 @@ class RulesLoader(object):
 
             loaded.update(rule)
             rule = loaded
-            if 'import' in rule:
-                # add all of the files to load into the load queue
-                files_to_import += self.get_import_rule(rule)
-                del (rule['import'])  # or we could go on forever!
-            if len(files_to_import) > 0:
-                # set the next file to load
-                next_file_to_import = files_to_import.pop()
-                rules = self.import_rules.get(filename, [])
-                rules.append(next_file_to_import)
-                self.import_rules[filename] = rules
-                filename = next_file_to_import
+
+            if 'import' not in rule:
+                # clear import_rules cache for current path
+                self.import_rules.pop(current_path, None)
+
+            else:
+                # read the set of import paths from the rule
+                import_paths = self.get_import_rule(rule)
+                if type(import_paths) is str:
+                    import_paths = [import_paths]
+
+                # remove the processed import property to prevent infinite loop
+                del (rule['import'])
+
+                # update import_rules cache for current path
+                self.import_rules[current_path] = import_paths
+
+                # push the imports paths onto the top of the stack
+                for import_path in import_paths:
+                    import_paths_stack.append(import_path)
+
+            # pop the next import path from the top of the stack
+            if len(import_paths_stack) > 0:
+                current_path = import_paths_stack.pop()
             else:
                 break
 
@@ -439,7 +465,9 @@ class RulesLoader(object):
         if rule.get('scan_entire_timeframe') and not rule.get('timeframe'):
             raise EAException('scan_entire_timeframe can only be used if there is a timeframe specified')
 
-        # Compile Jinja Template
+        self.load_jinja_template(rule)
+
+    def load_jinja_template(self, rule):
         if rule.get('alert_text_type') == 'alert_text_jinja':
             jinja_template_path = rule.get('jinja_template_path')
             if jinja_template_path:
@@ -494,6 +522,7 @@ class RulesLoader(object):
                 name, config = next(iter(list(alert.items())))
                 config_copy = copy.copy(rule)
                 config_copy.update(config)  # warning, this (intentionally) mutates the rule dict
+                self.load_jinja_template(config_copy)
                 return name, config_copy
             else:
                 raise EAException()
@@ -550,6 +579,8 @@ class FileRulesLoader(RulesLoader):
         rule_files = []
         if 'scan_subdirectories' in conf and conf['scan_subdirectories']:
             for ruledir in rule_folders:
+                if not os.path.exists(ruledir):
+                    raise EAException('Specified rule_folder does not exist: %s ' % ruledir)
                 for root, folders, files in os.walk(ruledir, followlinks=True):
                     # Openshift/k8s configmap fix for ..data and ..2021_05..date directories that loop with os.walk()
                     folders[:] = [d for d in folders if not d.startswith('..')]
@@ -586,7 +617,7 @@ class FileRulesLoader(RulesLoader):
         Allow for relative paths to the import rule.
         :param dict rule:
         :return: Path the import rule
-        :rtype: str
+        :rtype: List[str]
         """
         rule_imports = rule['import']
         if type(rule_imports) is str:
@@ -600,12 +631,14 @@ class FileRulesLoader(RulesLoader):
         return expanded_imports
 
     def get_rule_file_hash(self, rule_file):
-        rule_file_hash = ''
         if os.path.exists(rule_file):
             with open(rule_file, 'rb') as fh:
                 rule_file_hash = hashlib.sha1(fh.read()).digest()
             for import_rule_file in self.import_rules.get(rule_file, []):
                 rule_file_hash += self.get_rule_file_hash(import_rule_file)
+        else:
+            not_found = 'ENOENT ' + rule_file
+            rule_file_hash = hashlib.sha1(not_found.encode('utf-8')).digest()
         return rule_file_hash
 
     @staticmethod

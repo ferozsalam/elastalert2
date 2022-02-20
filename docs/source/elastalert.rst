@@ -1,7 +1,7 @@
 ElastAlert 2 - Automated rule-based alerting for Elasticsearch
 **************************************************************
 
-ElastAlert 2 is a simple framework for alerting on anomalies, spikes, or other patterns of interest from data in `Elasticsearch <https://www.elastic.co/elasticsearch/>` and `OpenSearch <https://opensearch.org/>` (Under development).
+ElastAlert 2 is a simple framework for alerting on anomalies, spikes, or other patterns of interest from data in `Elasticsearch <https://www.elastic.co/elasticsearch/>`_ and `OpenSearch <https://opensearch.org/>`_.
 
 If you have data being written into Elasticsearch in near real time and want to be alerted when that data matches certain patterns, ElastAlert 2 is the tool for you.
 
@@ -28,6 +28,7 @@ Several rule types with common monitoring paradigms are included with ElastAlert
 Currently, we have support built in for these alert types:
 
 - Alerta
+- Alertmanager
 - AWS SES (Amazon Simple Email Service)
 - AWS SNS (Amazon Simple Notification Service)
 - Chatwork
@@ -41,6 +42,7 @@ Currently, we have support built in for these alert types:
 - Gitter
 - GoogleChat
 - HTTP POST
+- HTTP POST 2
 - Jira
 - Line Notify
 - Mattermost
@@ -125,8 +127,15 @@ is set to true. Note that back filled data may not always trigger count based al
 When ElastAlert 2 is started, it will query for information about the time that it was last run. This way,
 even if ElastAlert 2 is stopped and restarted, it will never miss data or look at the same events twice. It will also specify the default cluster for each rule to run on.
 The environment variable ``ES_HOST`` will override this field.
+For multiple host Elasticsearch clusters see ``es_hosts`` parameter.
 
 ``es_port``: The port corresponding to ``es_host``. The environment variable ``ES_PORT`` will override this field.
+
+``es_hosts`` is the list of addresses of the nodes of the Elasticsearch cluster. This
+parameter can be used for high availability purposes, but the primary host must also
+be specified in the ``es_host`` parameter. The ``es_hosts`` parameter can be overridden 
+within each rule. This value can be specified as ``host:port`` if overriding the default port.
+The environment variable ``ES_HOSTS`` will override this field, and can be specified as a comma-separated value to denote multiple hosts.
 
 ``use_ssl``: Optional; whether or not to connect to ``es_host`` using TLS; set to ``True`` or ``False``.
 The environment variable ``ES_USE_SSL`` will override this field.
@@ -178,8 +187,7 @@ default is 10,000, and if you expect to get near this number, consider using ``u
 limit is reached, ElastAlert 2 will `scroll <https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-scroll.html>`_
 using the size of ``max_query_size`` through the set amount of pages, when ``max_scrolling_count`` is set or until processing all results.
 
-``max_scrolling_count``: The maximum amount of pages to scroll through. The default is ``0``, which means the scrolling has no limit.
-For example if this value is set to ``5`` and the ``max_query_size`` is set to ``10000`` then ``50000`` documents will be downloaded at most.
+``max_scrolling_count``: The maximum amount of pages to scroll through. The default is ``990``, to avoid a stack overflow error due to Python's stack limit of 1000. For example, if this value is set to ``5`` and the ``max_query_size`` is set to ``10000`` then ``50000`` documents will be downloaded at most.
 
 ``max_threads``: The maximum number of concurrent threads available to process scheduled rules. Large numbers of long-running rules may require this value be increased, though this could overload the Elasticsearch cluster if too many complex queries are running concurrently. Default is 10.
 
@@ -201,6 +209,18 @@ rule will no longer be run until either ElastAlert 2 restarts or the rule file h
 ``notify_email``: An email address, or list of email addresses, to which notification emails will be sent. Currently,
 only an uncaught exception will send a notification email. The from address, SMTP host, and reply-to header can be set
 using ``from_addr``, ``smtp_host``, and ``email_reply_to`` options, respectively. By default, no emails will be sent.
+
+single address example::
+
+    notify_email: "one@domain"
+
+or
+
+multiple address example::
+
+    notify_email:
+        - "one@domain"
+        - "two@domain"
 
 ``from_addr``: The address to use as the from header in email notifications.
 This value will be used for email alerts as well, unless overwritten in the rule config. The default value

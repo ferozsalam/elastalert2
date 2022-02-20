@@ -1,20 +1,20 @@
 
 # ElastAlert 2 Helm Chart for Kubernetes
 
-An ElastAlert 2 helm chart is available in the jertel Helm repository, and can be installed into an existing Kubernetes cluster by following the instructions below.
+An ElastAlert 2 helm chart is available, and can be installed into an existing Kubernetes cluster by following the instructions below.
 
 ## Installing the Chart
 
-Add the jertel repository to your Helm configuration:
+Add the elastalert2 repository to your Helm configuration:
 
 ```console
-helm repo add jertel https://helm.jertel.com
+helm repo add elastalert2 https://jertel.github.io/elastalert2/
 ```
 
 Next, install the chart with a release name, such as _elastalert2_:
 
 ```console
-helm install elastalert2 jertel/elastalert2
+helm install elastalert2 elastalert2/elastalert2
 ```
 
 The command deploys ElastAlert 2 on the Kubernetes cluster in the default configuration. The [configuration](#configuration) section lists the parameters that can be configured during installation.
@@ -47,7 +47,7 @@ The command removes all the Kubernetes components associated with the chart and 
 | Parameter                                    | Description                                                                                                                   | Default                                                  |
 |----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
 | `image.repository`                           | docker image                                                                                                                  | jertel/elastalert2                                       |
-| `image.tag`                                  | docker image tag                                                                                                              | 2.2.1                                                    |
+| `image.tag`                                  | docker image tag                                                                                                              | 2.3.0                                                    |
 | `image.pullPolicy`                           | image pull policy                                                                                                             | IfNotPresent                                             |
 | `image.pullSecret`                           | image pull secret                                                                                                             | ""                                                       |
 | `podAnnotations`                             | Annotations to be added to pods                                                                                               | {}                                                       |
@@ -65,9 +65,9 @@ The command removes all the Kubernetes components associated with the chart and 
 | `elasticsearch.credentialsSecretUsernameKey` | The key in elasticsearch.credentialsSecret that stores the ES password auth                                                   | `NULL`                                                   |
 | `elasticsearch.credentialsSecretPasswordKey` | The key in elasticsearch.credentialsSecret that stores the ES username auth                                                   | `NULL`                                                   |
 | `elasticsearch.verifyCerts`                  | whether or not to verify TLS certificates                                                                                     | True                                                     |
-| `elasticsearch.clientCert`                   | path to a PEM certificate to use as the client certificate                                                                    | /certs/client.pem                                        |
-| `elasticsearch.clientKey`                    | path to a private key file to use as the client key                                                                           | /certs/client-key.pem                                    |
-| `elasticsearch.caCerts`                      | path to a CA cert bundle to use to verify SSL connections                                                                     | /certs/ca.pem                                            |
+| `elasticsearch.clientCert`                   | path to a PEM certificate to use as the client certificate                                                                    | `NULL`                                                   |
+| `elasticsearch.clientKey`                    | path to a private key file to use as the client key                                                                           | `NULL`                                                   |
+| `elasticsearch.caCerts`                      | path to a CA cert bundle to use to verify SSL connections                                                                     | `NULL`                                                   |
 | `elasticsearch.certsVolumes`                 | certs volumes, required to mount ssl certificates when elasticsearch has tls enabled                                          | `NULL`                                                   |
 | `elasticsearch.certsVolumeMounts`            | mount certs volumes, required to mount ssl certificates when elasticsearch has tls enabled                                    | `NULL`                                                   |
 | `extraConfigOptions`                         | Additional options to propagate to all rules, cannot be `alert`, `type`, `name` or `index`                                    | `{}`                                                     |

@@ -46,6 +46,17 @@ definitions:
     type: array
     items: *slackField
 
+  msTeamsFact: &msTeamsFact
+    type: object
+    additionalProperties: false
+    properties:
+      name: {type: string}
+      value: {type: string}
+
+  arrayOfMsTeamsFacts: &arrayOfMsTeamsFacts
+    type: array
+    items: *msTeamsFact
+
   mattermostField: &mattermostField
     type: object
     additionalProperties: false
@@ -200,6 +211,7 @@ properties:
   use_strftime_index: {type: boolean}
 
   # Optional Settings
+  es_hosts: {type: array, items: {type: string}}
   import:
     anyOf:
       - type: array
@@ -233,6 +245,9 @@ properties:
   raw_count_keys: {type: boolean}
   generate_kibana_link: {type: boolean}
   kibana_dashboard: {type: string}
+  kibana_url: {type: string, format: uri}
+  kibana_username: {type: string}
+  kibana_password: {type: string}
   use_kibana_dashboard: {type: string}
   use_local_time: {type: boolean}
   custom_pretty_ts_format: {type: string}
@@ -241,14 +256,23 @@ properties:
   replace_dots_in_field_names: {type: boolean}
   scan_entire_timeframe: {type: boolean}
 
+  ### summary table
+  summary_table_fields: {type: array, items: {type: string}}
+  summary_table_type: {type: string, enum: ['ascii', 'markdown']}
+  summary_table_max_rows: {type: integer, minimum: 0}
+  summary_prefix: {type: string}
+  summary_suffix: {type: string}
+
   ### Kibana Discover App Link
   generate_kibana_discover_url: {type: boolean}
-  kibana_discover_app_url: {type: string, format: uri}
-  kibana_discover_version: {type: string, enum: ['7.15', '7.14', '7.13', '7.12', '7.11', '7.10', '7.9', '7.8', '7.7', '7.6', '7.5', '7.4', '7.3', '7.2', '7.1', '7.0', '6.8', '6.7', '6.6', '6.5', '6.4', '6.3', '6.2', '6.1', '6.0', '5.6']}
+  shorten_kibana_discover_url: {type: boolean}
+  kibana_discover_app_url: {type: string}
+  kibana_discover_version: {type: string, enum: ['7.17', '7.16', '7.15', '7.14', '7.13', '7.12', '7.11', '7.10', '7.9', '7.8', '7.7', '7.6', '7.5', '7.4', '7.3', '7.2', '7.1', '7.0', '6.8', '6.7', '6.6', '6.5', '6.4', '6.3', '6.2', '6.1', '6.0', '5.6']}
   kibana_discover_index_pattern_id: {type: string, minLength: 1}
   kibana_discover_columns: {type: array, items: {type: string, minLength: 1}, minItems: 1}
   kibana_discover_from_timedelta: *timedelta
   kibana_discover_to_timedelta: *timedelta
+  kibana_discover_security_tenant: {type:string}
 
   # Alert Content
   alert_text: {type: string} # Python format string
@@ -284,6 +308,54 @@ properties:
   alerta_value: {type: string} # Python format string
   alerta_attributes_keys: {type: array, items: {type: string}}
   alerta_attributes_values: {type: array, items: {type: string}}  # Python format string
+
+  ### Alertmanager
+  alertmanager_hosts: {type: array, items: {type: string}}
+  alertmanager_api_version: {type: string, enum: ['v1', 'v2']}
+  alertmanager_alert_subject_labelname: {type: string}
+  alertmanager_alert_text_labelname: {type: string}
+  alertmanager_proxy: {type: string}
+  alertmanager_ca_certs: {type: boolean}
+  alertmanager_ignore_ssl_errors: {type: boolean}
+  alertmanager_timeout: {type: integer}
+  alertmanager_basic_auth_login: {type: string}
+  alertmanager_basic_auth_password: {type: string}
+  alertmanager_labels:
+    type: object
+    minProperties: 1
+    patternProperties:
+      "^.+$":
+        oneOf:
+          - type: string
+          - type: object
+            additionalProperties: false
+            required: [field]
+            properties:
+              field: {type: string, minLength: 1}
+  alertmanager_annotations:
+    type: object
+    minProperties: 1
+    patternProperties:
+      "^.+$":
+        oneOf:
+          - type: string
+          - type: object
+            additionalProperties: false
+            required: [field]
+            properties:
+              field: {type: string, minLength: 1}
+  alertmanager_fields:
+    type: object
+    minProperties: 1
+    patternProperties:
+      "^.+$":
+        oneOf:
+          - type: string
+          - type: object
+            additionalProperties: false
+            required: [field]
+            properties:
+              field: {type: string, minLength: 1}
 
   ### AWS SES
   ses_email: *arrayOfString
@@ -365,6 +437,7 @@ properties:
   exotel_auth_token: {type: string}
   exotel_to_number: {type: string}
   exotel_from_number: {type: string}
+  exotel_message_body: {type: string}
 
   ### Gitter
   gitter_webhook_url: {type: string}
@@ -386,6 +459,13 @@ properties:
   http_post_ignore_ssl_errors: {type: boolean}
   http_post_timeout: {type: integer}
 
+  ### HTTP POST 2
+  http_post2_url: *arrayOfString
+  http_post2_proxy: { type: string }
+  http_post2_ca_certs: { type: boolean }
+  http_post2_ignore_ssl_errors: { type: boolean }
+  http_post2_timeout: { type: integer }
+
   ### Jira
   jira_server: {type: string}
   jira_project: {type: string}
@@ -405,7 +485,7 @@ properties:
   jira_bump_not_in_statuses: *arrayOfString
   jira_bump_in_statuses: *arrayOfString
   jira_bump_only: {type: boolean}
-  jira_transition_to: {type: boolean}
+  jira_transition_to: {type: string}
   jira_bump_after_inactivity: {type: number}
 
   ### Line Notify
@@ -440,6 +520,11 @@ properties:
   ms_teams_theme_color: {type: string}
   ms_teams_proxy: {type: string}
   ms_teams_alert_fixed_width: {type: boolean}
+  ms_teams_alert_facts: *arrayOfMsTeamsFacts
+  ms_teams_attach_kibana_discover_url: {type: boolean}
+  ms_teams_kibana_discover_title: {type: string}
+  ms_teams_ca_certs: {type: boolean}
+  ms_teams_ignore_ssl_errors: {type: boolean}
 
   ### Opsgenie
   opsgenie_key: {type: string}
@@ -537,6 +622,9 @@ properties:
   slack_attach_kibana_discover_url: {type: boolean}
   slack_kibana_discover_color: {type: string}
   slack_kibana_discover_title: {type: string}
+  slack_attach_jira_ticket_url: {type: boolean}
+  slack_jira_ticket_color: {type: string}
+  slack_jira_ticket_title: {type: string}
   slack_ca_certs: {type: boolean}
   slack_footer: {type: string}
   slack_footer_icon: {type: string}

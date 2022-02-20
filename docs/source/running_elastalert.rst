@@ -44,7 +44,7 @@ logs `localhost:9200` instead of the actual ``es_host``:``es_port``.
 ``--pin_rules`` will stop ElastAlert 2 from loading, reloading or removing rules
 based on changes to their config files.
 
-``--prometheus_port`` exposes ElastAlert 2 Prometheus metrics on the specified
+``--prometheus_port`` exposes ElastAlert 2 `Prometheus metrics <https://elastalert2.readthedocs.io/en/latest/recipes/exposing_rule_metrics.html>`_ on the specified
 port. Prometheus metrics disabled by default.
 
 ``--rule <rule.yaml>`` will only run the given rule. The rule file may be a
@@ -76,29 +76,114 @@ As a Docker container
 =====================
 
 If you're interested in a pre-built Docker image check out the
-`elastalert2
-<https://hub.docker.com/r/jertel/elastalert2>`_ project on Docker Hub.
+elastalert2 container image on `Docker Hub <https://hub.docker.com/r/jertel/elastalert2>`_ or `GitHub Container Registry <https://github.com/jertel/elastalert2/pkgs/container/elastalert2%2Felastalert2>`_. Both images are published for each release. Use GitHub Container Registry if you are running into Docker Hub usage limits.
 
 Be aware that the ``latest`` tag of the image represents the latest commit into
 the master branch. If you prefer to upgrade more slowly you will need utilize a
-versioned tag, such as ``2.2.1`` instead, or ``2`` if you are comfortable with
+versioned tag, such as ``2.3.0`` instead, or ``2`` if you are comfortable with
 always using the latest released version of ElastAlert 2.
 
 A properly configured config.yaml file must be mounted into the container during
 startup of the container. Use the `example file
 <https://github.com/jertel/elastalert2/blob/master/examples/config.yaml.example>`_
-provided as a template, and once saved locally to a file such as
-``/tmp/elastalert.yaml``, run the container as follows:
+as a template.
+
+The following example assumes Elasticsearch container has already been started with Docker. 
+This example also assumes both the Elasticsearch and ElastAlert2 containers are using the default Docker network: ``es_default``
+
+Create a rule directory and rules file in addition to elastalert.yaml, and then mount both into the ElastAlert 2 container:
 
 .. code-block::
 
-    docker run -d -v /tmp/elastalert.yaml:/opt/elastalert/config.yaml jertel/elastalert2
+    elastalert.yaml
+    rules/
+      a.yaml
 
-To build the image locally run the following command:
+elastalert.yaml
+
+.. code-block::
+
+    rules_folder: /opt/elastalert/rules
+
+    run_every:
+      seconds: 10
+
+    buffer_time:
+      minutes: 15
+
+    es_host: elasticsearch
+    es_port: 9200
+
+    writeback_index: elastalert_status
+
+    alert_time_limit:
+      days: 2
+
+a.yaml
+
+.. code-block::
+
+    name: "a"
+    type: "frequency"
+    index: "mariadblog-*"
+    is_enabled: true
+    num_events: 2
+    realert:
+      minutes: 5
+    terms_size: 50
+    timeframe:
+      minutes: 5
+    timestamp_field: "@timestamp"
+    timestamp_type: "iso"
+    use_strftime_index: false
+    alert_subject: "Test {} 123 aa☃"
+    alert_subject_args:
+      - "message"
+      - "@log_name"
+    alert_text: "Test {}  123 bb☃"
+    alert_text_args:
+      - "message"
+    filter:
+      - query:
+          query_string:
+            query: "@timestamp:*"
+    alert:
+      - "slack"
+    slack_webhook_url: 'https://hooks.slack.com/services/xxxxxxxxx'
+    slack_channel_override: "#abc"
+    slack_emoji_override: ":kissing_cat:"
+    slack_msg_color: "warning"
+    slack_parse_override: "none"
+    slack_username_override: "elastalert"
+
+Starting the container via Docker Hub (hub.docker.com)
+
+.. code-block::
+
+    docker run --net=es_default -d --name elastalert --restart=always \
+    -v $(pwd)/elastalert.yaml:/opt/elastalert/config.yaml \
+    -v $(pwd)/rules:/opt/elastalert/rules \
+    jertel/elastalert2 --verbose
+
+    docker logs -f elastalert
+
+Starting the container via GitHub Container Registry (ghcr.io)
+
+.. code-block::
+
+    docker run --net=es_default -d --name elastalert --restart=always \
+    -v $(pwd)/elastalert.yaml:/opt/elastalert/config.yaml \
+    -v $(pwd)/rules:/opt/elastalert/rules \
+    ghcr.io/jertel/elastalert2/elastalert2 --verbose
+
+    docker logs -f elastalert
+
+For developers, the below command can be used to build the image locally:
 
 .. code-block::
 
     docker build . -t elastalert2
+
 
 .. _kubernetes-instructions:
 
@@ -119,13 +204,13 @@ As a Python package
 Requirements
 ------------
 
-- Elasticsearch
+- Elasticsearch 6.x, 7.x.
 - ISO8601 or Unix timestamped data
-- Python 3.9
+- Python 3.10. Require OpenSSL 1.1.1 or newer.
 - pip
-- Packages on Ubuntu 21.x: build-essential python3-pip python3.9 python3.9-dev libffi-dev libssl-dev
+- Packages on Ubuntu 21.x: build-essential python3-pip python3.10 python3.10-dev libffi-dev libssl-dev
 
-If you want to install python 3.9 on CentOS, please install python 3.9 from the source code after installing 'Development Tools'.
+If you want to install python 3.10 on CentOS, please install python 3.10 from the source code after installing 'Development Tools'.
 
 Downloading and Configuring
 ---------------------------
@@ -158,11 +243,18 @@ For this tutorial, we will use the ``examples/rules`` folder.
 time each query is run. This value is ignored for rules where
 ``use_count_query`` or ``use_terms_query`` is set to true.
 
-``es_host`` is the address of an Elasticsearch cluster where ElastAlert 2 will
+``es_host`` is the primary address of an Elasticsearch cluster where ElastAlert 2 will
 store data about its state, queries run, alerts, and errors. Each rule may also
-use a different Elasticsearch host to query against.
+use a different Elasticsearch host to query against. For multiple host Elasticsearch 
+clusters see ``es_hosts`` parameter.
 
 ``es_port`` is the port corresponding to ``es_host``.
+
+``es_hosts`` is the list of addresses of the nodes of the Elasticsearch cluster. This
+parameter can be used for high availability purposes, but the primary host must also
+be specified in the ``es_host`` parameter. The ``es_hosts`` parameter can be overridden 
+within each rule. This value can be specified as ``host:port`` if overriding the default 
+port.
 
 ``use_ssl``: Optional; whether or not to connect to ``es_host`` using TLS; set
 to ``True`` or ``False``.
